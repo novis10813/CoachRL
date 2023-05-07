@@ -1,29 +1,28 @@
-import logging
+import os
 from abc import ABC, abstractmethod
 
 import torch
-from torch.nn import Module
-from torch.optim import Optimizer
+from torch.nn import Module, SmoothL1Loss
+from torch.optim import AdamW
 
 
-class NetworkContainer(ABC):
+class BasicAlgo(ABC):
     def __init__(self,
                  net: Module,
-                 criterion: Module,
-                 optimizer: Optimizer,
-                 random_policy: None,
+                 lr: float,
                  device: str):
         """
         net: A pytorch neural network object
         criterion: usually mse, but Huber loss is recommended
         optimizer: A pytorch optimizer
         """
-        self.init_network()
-        self.optimizer = optimizer
-        self.criterion = criterion
+        self.optimizer = AdamW(net.parameters(), lr=lr)
+        self.criterion = SmoothL1Loss()
         self.net = net
-        self.random_policy = random_policy
-        self.device = device
+        if not device:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            self.device = device
     
     @abstractmethod
     def init_network(self):
@@ -37,11 +36,6 @@ class NetworkContainer(ABC):
 
     @abstractmethod
     def update_target(self):
-        pass
-
-    @abstractmethod
-    def action_distribution(self, state):
-        '''Returns the distribution of action'''
         raise NotImplementedError
 
     @abstractmethod
@@ -49,17 +43,17 @@ class NetworkContainer(ABC):
         raise NotImplementedError
 
 
-class DQN(NetworkContainer):
+class DQN(BasicAlgo):
     """
     This is an implementation of NatureDQN.
     It is used as a base model for DQN in this project.
     """
     def __init__(self,
                  net: Module,
-                 criterion: Module,
-                 optimizer: Optimizer,
+                 lr: float,
                  device: str):
-        super().__init__(net, criterion, optimizer, device)
+        super().__init__(net, lr, device)
+        self.init_network()
 
     def update_target(self):
         """update target net parameters"""
@@ -72,15 +66,26 @@ class DQN(NetworkContainer):
         self.target_net.to(self.device)
         self.update_target()
 
-    def action_distribution(self, state):
-        return self.policy_net(state)
+    def save(self, model_path="./model"):
+        if not os.path.exists(model_path):
+            os.makedirs(model_path)
+        torch.save(self.policy_net.state_dict(), os.path.join(model_path, "policy.ckpt"))
+        torch.save(self.target_net.state_dict(), os.path.join(model_path, "target.ckpt"))
+
+    def load(self, model_path="./model"):
+        self.policy_net.load_state_dict(torch.load(os.path.join(model_path, "policy.ckpt")))
+        self.target_net.load_state_dict(torch.load(os.path.join(model_path, "target.ckpt")))
+
+    def choose_action(self, state):
+        with torch.no_grad():
+            return self.policy_net(state).max(1)[1].view(1, 1)
 
     def optimize(self, transitions):
         # transfer data to GPU
         transitions = [torch.tensor(i, dtype=torch.float32, device=self.device) for i in transitions]
         states, actions, rewards, masks, states_ = transitions
         # calculate Q value
-        q = self.action_distribution(states).gather(1, actions)
+        q = self.policy_net(states).gather(1, actions)
         # calculate expected Q value
         with torch.no_grad():
             v_ = self.target_net(states_).max(1)[0]

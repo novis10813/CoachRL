@@ -69,3 +69,25 @@ class ReplayBuffer(BaseReplayBuffer):
             self.mask[indices],
             self.state[indices],
         )
+
+
+class PrioritizedReplayBuffer(BaseReplayBuffer):
+    """
+    A basic ReplayBuffer
+    Args:
+        buffer_size: Maximum number of transitions a buffer can store
+        obs_shape: The shape of observation_space
+        action_shape: The shape of action_space
+        gamma: The gamma in bellman equation, which is used to pre-calculate
+            the value of (1 - done) * gamma.
+            If `done`, the mask will record `0.0`, else `gamma`
+    """
+    def __init__(self, buffer_size, obs_shape, action_shape, gamma):
+        super().__init__(buffer_size, gamma)
+        obs_shape = list(obs_shape)
+        obs_shape.insert(0, buffer_size)
+        self.state = np.zeros(obs_shape)
+        action_shape = list(action_shape)
+        action_shape.insert(0, buffer_size)
+        self.action = np.zeros(action_shape)
+        self.reward = np.zeros((buffer_size))

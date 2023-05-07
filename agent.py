@@ -1,37 +1,47 @@
 import itertools
+import random
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 import torch
 from gymnasium import Env
+from torch.nn import Module
 from tqdm.auto import tqdm
 
-from buffers import BaseReplayBuffer
-from Model import NetworkContainer
+from buffers import BaseReplayBuffer, PrioritizedReplayBuffer, ReplayBuffer
+from Model import DQN, BasicAlgo
+from Network import BasicNetwork
+from utils import CsvWriter
 
 
 class BaseAgent(ABC):
     def __init__(self,
                  env: Env,
-                 model: NetworkContainer,
-                 buffer: BaseReplayBuffer,
-                 args_config: dict):
-        """
-        args:
-            env: A gymnasium base environment
-            model: A NetWorkContainer object
-            buffer: A ReplayBuffer object
-            args_config: A dictionary object, contains training arguments
-        """
+                 lr=0.0001,
+                 gamma=0.9,
+                 net=None,
+                 prioritized_buffer=False,
+                 buffer_size=100000,
+                 step=3,
+                 batch_size=512,
+                 verbose=False):
         self.env = env
-        self.model = model
-        self.buffer = buffer
-        # args_config
-        self.episodes = args_config["episodes"]
-        self.batch_size = args_config["batch_size"]
-        self.record = args_config["record"]
-        self.mode = args_config["action_mode"]
-        self.update_step = args_config["update_step"]
-    
+        obs_shape = env.observation_space.shape
+        action_shape = env.action_space.shape
+        self.lr = lr
+        # if the network is not designated, use BasicNetwork
+        if net is None:
+            self.net = BasicNetwork(len(obs_shape), len(action_shape))
+        else:
+            self.net = net
+        self.step = step
+        self.batch_size = batch_size
+        if prioritized_buffer:
+            self.buffer = PrioritizedReplayBuffer(buffer_size, obs_shape, action_shape, gamma)
+        else:
+            self.buffer = ReplayBuffer(buffer_size, obs_shape, action_shape, gamma)
+        self.verbose = verbose
+
     @abstractmethod
     def _optimize(self):
         raise NotImplementedError
@@ -45,39 +55,115 @@ class BaseAgent(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def test(self, env):
+    def predict(self, obs):
+        raise NotImplementedError
+
+    @abstractmethod
+    def load(self, model_path):
         raise NotImplementedError
 
 
-class Agent(BaseAgent):
+class DQNAgent(BaseAgent):
     def __init__(self,
                  env: Env,
-                 model: NetworkContainer,
-                 buffer: BaseReplayBuffer,
-                 args_config: dict):
-        super().__init__(env, model, buffer, args_config)
+                 lr=0.0001,
+                 gamma=0.9,
+                 net=None,
+                 prioritized_buffer=False,
+                 buffer_size=100000,
+                 step=3,
+                 batch_size=512,
+                 eps=0.1,
+                 device=None):
+        """
+        Paremeters
+        ----------
+        env : Env
+            A gymnasium base environment.
+
+        lr: float, default=0.0001
+            Learning rate
+
+        gamma : float, default=0.9
+            Discount factor
+
+        net : nn.Module, default=None
+            A neural network based on PyTorch, if `None`, use BasicNetwork instead.
+
+        prioritized_buffer : bool, default=False
+            Whether to use prioritized replay buffer
+
+        buffer_size : int, default=100000
+            Size of the replay buffer
+
+        step : int, default=3
+            How many episodes per update for a target network
+
+        batch_size : int, default=512
+            When optimizing the network,
+            the number of transitions sample from the buffer.
+
+        eps : float, default=0.1
+            Epsilon for epsilon-greedy action selection
+
+        device : str or None, default=None
+            Device to run the model.
+            Use None to let PyTorch decide the device.
+            {"cuda" or "cpu"} to decide on your own.
+        """
+        super().__init__(env,
+                         lr,
+                         gamma,
+                         net,
+                         prioritized_buffer,
+                         buffer_size,
+                         step,
+                         batch_size)
+        self.eps = eps
+        self.algo = DQN(self.net, lr, device)
 
     def _chooseAction(self, obs):
-        # TODO: make it more straightforward(put it in config or what?)
-        assert self.mode in ["eps", "boltz", None], "Not an available method"
-        with torch.no_grad():
-            action = self.model.action_distribution(obs).max(1)[1].view(1, 1)
-
-        if self.mode is None:
-            return action
-        if self.mode == "eps":
-            pass
-        if self.mode == "boltzman":
-            pass
+        """Return Discrete actions"""
+        if random.random() < self.eps:
+            return self.env.action_space.sample()
+        return self.algo.choose_action(obs)
 
     def _optimize(self):
         if len(self.buffer) < self.batch_size:
             return
         transitions = self.buffer.sample(self.batch_size)
-        self.model.optimize(transitions)
+        self.algo.optimize(transitions)
 
-    def train(self, logger):
-        for episode in range(self.episodes):
+    def load(self, model_path):
+        self.algo.load(model_path)
+
+    def predict(self, obs):
+        return self.algo.choose_action(obs)
+
+    def train(self, episodes=200, save_every=0, log_path=None, verbose=True):
+        """
+        Train the agent
+        
+        Parameters
+        ----------
+        episodes : int, default=200
+            Number of training episodes
+
+        save_every : int, default=0
+            How often to save the model,
+            if 0, only save for the last episode
+        
+        log_path : str or None, default=None
+            Use str to designate the log path.
+            default format is `datetime.now()`-DQN.csv
+            If None, do not log.
+
+        verbose : bool, default=True
+            Whether to show loss and reward on terminal
+        """
+        if log_path is not None:
+            logger = CsvWriter("DQN", log_path)
+        for episode in range(episodes):
             total_reward = 0
             total_loss = []
             obs = self.env.reset()
@@ -94,11 +180,13 @@ class Agent(BaseAgent):
                 if done:
                     break
                 obs = obs_
-            # update target model for every n steps
-            if (episode+1) % self.update_step == 0:
-                self.model.update_target()
-            # TODO: show loss and reward every episodes
+            # update target model for every n episodes
+            if (episode+1) % self.step == 0:
+                self.algo.update_target()
             avg_loss = sum(total_loss) / len(total_loss)
-            print(f"[{episode}] | Reward: {total_reward} | Avg Loss: {avg_loss}")
-            logger.log(episode, total_reward, avg_loss)
-        logger.close()
+            if verbose:
+                print(f"[{episode}] | Reward: {total_reward} | Avg Loss: {avg_loss}")
+            if (save_every > 0) and (episode+1) % save_every == 0:
+                self.algo.save(f"./models/episodes_{episode}")
+            if log_path is not None:
+                logger.log(episode, total_reward, avg_loss)
