@@ -1,16 +1,13 @@
 import itertools
 import random
 from abc import ABC, abstractmethod
-from datetime import datetime
 
-import torch
 from gymnasium import Env
-from torch.nn import Module
+from Model import DQN
+from Network import BasicNetwork
 from tqdm.auto import tqdm
 
-from buffers import BaseReplayBuffer, PrioritizedReplayBuffer, ReplayBuffer
-from Model import DQN, BasicAlgo
-from Network import BasicNetwork
+from buffers import PrioritizedReplayBuffer, ReplayBuffer
 from utils import CsvWriter
 
 
