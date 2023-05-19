@@ -3,8 +3,8 @@ import random
 from abc import ABC, abstractmethod
 
 from gymnasium import Env
-from Model import DQN
-from Network import BasicNetwork
+from model import DQN
+from network import BasicNetwork
 from tqdm.auto import tqdm
 
 from buffers import PrioritizedReplayBuffer, ReplayBuffer
@@ -12,32 +12,43 @@ from utils import CsvWriter
 
 
 class BaseAgent(ABC):
-    def __init__(self,
-                 env: Env,
-                 lr=0.0001,
-                 gamma=0.9,
-                 net=None,
-                 prioritized_buffer=False,
-                 buffer_size=100000,
-                 step=3,
-                 batch_size=512,
-                 verbose=False):
+    def __init__(
+        self,
+        env: Env,
+        lr=0.0001,
+        gamma=0.9,
+        net=None,
+        prioritized_buffer=False,
+        buffer_size=100000,
+        step=3,
+        batch_size=512,
+        verbose=False,
+    ):
+        assert verbose in [True, False, "debug"]
+        self.verbose = verbose
         self.env = env
         obs_shape = env.observation_space.shape
-        action_shape = env.action_space.shape
         self.lr = lr
         # if the network is not designated, use BasicNetwork
         if net is None:
-            self.net = BasicNetwork(len(obs_shape), len(action_shape))
+            self.net = BasicNetwork(obs_shape[0], env.action_space.n)
         else:
             self.net = net
+        if self.verbose == "debug":
+            print("Network is Initialized")
+            print(self.net)
         self.step = step
         self.batch_size = batch_size
         if prioritized_buffer:
-            self.buffer = PrioritizedReplayBuffer(buffer_size, obs_shape, action_shape, gamma)
+            self.buffer = PrioritizedReplayBuffer(
+                buffer_size, obs_shape, env.action_space.n, gamma
+            )
         else:
-            self.buffer = ReplayBuffer(buffer_size, obs_shape, action_shape, gamma)
-        self.verbose = verbose
+            self.buffer = ReplayBuffer(
+                buffer_size, obs_shape, env.action_space.n, gamma
+            )
+        if self.verbose == "debug":
+            print("Buffer is Initialized")
 
     @abstractmethod
     def _optimize(self):
@@ -61,17 +72,20 @@ class BaseAgent(ABC):
 
 
 class DQNAgent(BaseAgent):
-    def __init__(self,
-                 env: Env,
-                 lr=0.0001,
-                 gamma=0.9,
-                 net=None,
-                 prioritized_buffer=False,
-                 buffer_size=100000,
-                 step=3,
-                 batch_size=512,
-                 eps=0.1,
-                 device=None):
+    def __init__(
+        self,
+        env: Env,
+        lr=0.0001,
+        gamma=0.9,
+        net=None,
+        prioritized_buffer=False,
+        buffer_size=100000,
+        step=3,
+        batch_size=512,
+        verbose=False,
+        eps=0.1,
+        device=None,
+    ):
         """
         Paremeters
         ----------
@@ -108,19 +122,23 @@ class DQNAgent(BaseAgent):
             Use None to let PyTorch decide the device.
             {"cuda" or "cpu"} to decide on your own.
         """
-        super().__init__(env,
-                         lr,
-                         gamma,
-                         net,
-                         prioritized_buffer,
-                         buffer_size,
-                         step,
-                         batch_size)
+        super().__init__(
+            env,
+            lr,
+            gamma,
+            net,
+            prioritized_buffer,
+            buffer_size,
+            step,
+            batch_size,
+            verbose,
+        )
         self.eps = eps
         self.algo = DQN(self.net, lr, device)
 
     def _chooseAction(self, obs):
         """Return Discrete actions"""
+        print(obs)
         if random.random() < self.eps:
             return self.env.action_space.sample()
         return self.algo.choose_action(obs)
@@ -140,7 +158,7 @@ class DQNAgent(BaseAgent):
     def train(self, episodes=200, save_every=0, log_path=None, verbose=True):
         """
         Train the agent
-        
+
         Parameters
         ----------
         episodes : int, default=200
@@ -149,7 +167,7 @@ class DQNAgent(BaseAgent):
         save_every : int, default=0
             How often to save the model,
             if 0, only save for the last episode
-        
+
         log_path : str or None, default=None
             Use str to designate the log path.
             default format is `datetime.now()`-DQN.csv
@@ -169,6 +187,7 @@ class DQNAgent(BaseAgent):
             for t in tqdm(itertools.count()):
                 self.env.render()
                 act = self._chooseAction(obs)
+                print("This is action:", act)
                 obs_, reward, done, _, _ = self.env.step(act)
                 total_reward += reward
                 self.buffer.push(obs, act, reward, done, obs_)
@@ -178,12 +197,12 @@ class DQNAgent(BaseAgent):
                     break
                 obs = obs_
             # update target model for every n episodes
-            if (episode+1) % self.step == 0:
+            if (episode + 1) % self.step == 0:
                 self.algo.update_target()
             avg_loss = sum(total_loss) / len(total_loss)
             if verbose:
                 print(f"[{episode}] | Reward: {total_reward} | Avg Loss: {avg_loss}")
-            if (save_every > 0) and (episode+1) % save_every == 0:
+            if (save_every > 0) and (episode + 1) % save_every == 0:
                 self.algo.save(f"./models/episodes_{episode}")
             if log_path is not None:
                 logger.log(episode, total_reward, avg_loss)

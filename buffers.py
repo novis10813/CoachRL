@@ -14,7 +14,7 @@ class BaseReplayBuffer(ABC):
         self.full = False
 
     def __len__(self) -> int:
-        return self.buffer_size if self.full else self.cursor+1
+        return self.buffer_size if self.full else self.cursor + 1
 
     @abstractmethod
     def push(self, state, action, reward, done, next_state):
@@ -31,26 +31,25 @@ class ReplayBuffer(BaseReplayBuffer):
     Args:
         buffer_size: Maximum number of transitions a buffer can store
         obs_shape: The shape of observation_space
-        action_shape: The shape of action_space
+        action_shape: The shape of action_space, number of discrete actions
         gamma: The gamma in bellman equation, which is used to pre-calculate
             the value of (1 - done) * gamma.
             If `done`, the mask will record `0.0`, else `gamma`
     """
+
     def __init__(self, buffer_size, obs_shape, action_shape, gamma):
         super().__init__(buffer_size, gamma)
         obs_shape = list(obs_shape)
         obs_shape.insert(0, buffer_size)
         self.state = np.zeros(obs_shape)
-        action_shape = list(action_shape)
-        action_shape.insert(0, buffer_size)
-        self.action = np.zeros(action_shape)
+        self.action = np.zeros([buffer_size, action_shape])
         self.reward = np.zeros((buffer_size))
         self.mask = np.zeros((buffer_size))
         self.next_state = np.zeros(obs_shape)
 
     def push(self, state, action, reward, done, next_state):
         # calculate cursor position and length
-        self.cursor = (self.cursor+1) % self.buffer_size
+        self.cursor = (self.cursor + 1) % self.buffer_size
         # push data into the buffer
         self.state[self.cursor] = state
         self.action[self.cursor] = action
@@ -59,11 +58,13 @@ class ReplayBuffer(BaseReplayBuffer):
         self.mask[self.cursor] = 0.0 if done else self.gamma
         self.next_state[self.cursor] = next_state
         # check is full or not
-        if self.cursor+1 == self.buffer_size:
+        if self.cursor + 1 == self.buffer_size:
             self.full = True
 
     def sample(self, batch_size, replace=False):
-        assert batch_size <= self.__len__(), "sampling size should smaller than current buffer size"
+        assert (
+            batch_size <= self.__len__()
+        ), "sampling size should smaller than current buffer size"
         indices = np.random.choice(self.__len__(), batch_size, replace=replace)
         return (
             self.state[indices],
@@ -75,21 +76,14 @@ class ReplayBuffer(BaseReplayBuffer):
 
 
 class PrioritizedReplayBuffer(BaseReplayBuffer):
-    def __init__(self,
-                 buffer_size,
-                 obs_shape,
-                 action_shape,
-                 gamma,
-                 alpha=0.1,
-                 beta=0.1,
-                 eps=1e-2):
+    def __init__(
+        self, buffer_size, obs_shape, action_shape, gamma, alpha=0.1, beta=0.1, eps=1e-2
+    ):
         super().__init__(buffer_size, gamma)
         obs_shape = list(obs_shape)
         obs_shape.insert(0, buffer_size)
         self.state = np.zeros(obs_shape)
-        action_shape = list(action_shape)
-        action_shape.insert(0, buffer_size)
-        self.action = np.zeros(action_shape)
+        self.action = np.zeros([buffer_size, action_shape])
         self.reward = np.zeros((buffer_size))
         self.mask = np.zeros((buffer_size))
         self.next_state = np.zeros(obs_shape)
@@ -101,7 +95,7 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
         self.max_priority = eps
 
     def push(self, state, action, reward, done, next_state):
-        self.cursor = (self.cursor+1) % self.buffer_size
+        self.cursor = (self.cursor + 1) % self.buffer_size
         self.tree.add(self.max_priority, self.cursor)
         # push data into the buffer
         self.state[self.cursor] = state
@@ -110,11 +104,13 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
         # pre-calculate (1-done) * gamma
         self.mask[self.cursor] = 0.0 if done else self.gamma
         self.next_state[self.cursor] = next_state
-        if self.cursor+1 == self.buffer_size:
+        if self.cursor + 1 == self.buffer_size:
             self.full = True
 
     def sample(self, batch_size):
-        assert batch_size <= self.__len__(), "sampling size should smaller than current buffer size"
+        assert (
+            batch_size <= self.__len__()
+        ), "sampling size should smaller than current buffer size"
         sample_idxs, tree_idxs = [], []
         priorities = np.empty((batch_size, 1))
         segment = self.tree.total / batch_size

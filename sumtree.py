@@ -3,8 +3,8 @@ import numpy as np
 
 class SumTree:
     def __init__(self, capacity):
-        self.nodes = [0] * (2 * capacity - 1)
-        self.data = [None] * capacity
+        self.nodes = np.zeros(2 * capacity - 1)
+        self.data = np.empty(capacity, dtype=object)
         self.capacity = capacity
         self.count = 0
         self.real_size = 0
@@ -32,7 +32,7 @@ class SumTree:
         assert cumsum <= self.total
         idx = 0
         while 2 * idx + 1 < len(self.nodes):
-            left, right = 2*idx+1, 2*idx+2
+            left, right = 2 * idx + 1, 2 * idx + 2
             if cumsum <= self.nodes[left]:
                 idx = left
             else:
