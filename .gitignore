@@ -1,0 +1,3 @@
+.jukit
+__pycache__
+/src/log/*.csv
