@@ -3,12 +3,12 @@ import random
 from abc import ABC, abstractmethod
 
 from gymnasium import Env
-from model import DQN
-from network import BasicNetwork
+from rllib.model import DQN
+from rllib.network import BasicNetwork
 from tqdm.auto import tqdm
 
-from buffers import PrioritizedReplayBuffer, ReplayBuffer
-from utils import CsvWriter
+from rllib.buffer import PrioritizedReplayBuffer, ReplayBuffer
+from rllib.utils import CsvWriter
 
 
 class BaseAgent(ABC):

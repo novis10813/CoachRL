@@ -1,6 +1,10 @@
 import gymnasium as gym
+import os
 
-from agent import DQNAgent
+os.chdir("..")
+print(os.getcwd())
+
+from rllib.agent import DQNAgent
 
 # from wrappers import env_wrapper
 # env = env_wrapper(env)

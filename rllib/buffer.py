@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-from sumtree import SumTree
+from rllib.sumtree import SumTree
 
 
 class BaseReplayBuffer(ABC):

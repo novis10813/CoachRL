@@ -1,12 +1,10 @@
 # RLLib
-
-
-This is a reinforcement learning library, helpful for training different agent with different kinds of algorithm in PyTorch.
 ---
-# Log
+RLLib will be a Python library for Reinforcement Learning.
+It will easy-to-use, especially suitable for those who are doing research on it.(I believe)
 
-
-2023-05-07: Rearrange the APIs for RLLib. I'm going to implement prioritized experience replay next time
-2023-05-10: Implement prioritized experience replay
 ---
 # Introduction
+---
+
+
