@@ -1,5 +1,6 @@
 import itertools
 import random
+import torch
 from abc import ABC, abstractmethod
 
 from gymnasium import Env
@@ -138,7 +139,6 @@ class DQNAgent(BaseAgent):
 
     def _chooseAction(self, obs):
         """Return Discrete actions"""
-        print(obs)
         if random.random() < self.eps:
             return self.env.action_space.sample()
         return self.algo.choose_action(obs)
@@ -181,27 +181,32 @@ class DQNAgent(BaseAgent):
         for episode in range(episodes):
             total_reward = 0
             total_loss = []
-            obs = self.env.reset()
+            obs, _ = self.env.reset()
+            obs = torch.tensor(obs, dtype=torch.float32, device="cuda").unsqueeze(0)
             done = False
 
             for t in tqdm(itertools.count()):
                 self.env.render()
                 act = self._chooseAction(obs)
-                print("This is action:", act)
                 obs_, reward, done, _, _ = self.env.step(act)
                 total_reward += reward
-                self.buffer.push(obs, act, reward, done, obs_)
+                self.buffer.push(obs.cpu().numpy(), act, reward, done, obs_)
                 loss = self._optimize()
-                total_loss.append(loss)
+                # if loss is not None:
+                # total_loss.append(loss)
                 if done:
                     break
-                obs = obs_
+                obs = torch.tensor(obs_, dtype=torch.float32, device="cuda").unsqueeze(
+                    0
+                )
             # update target model for every n episodes
             if (episode + 1) % self.step == 0:
                 self.algo.update_target()
-            avg_loss = sum(total_loss) / len(total_loss)
+            # if len(total_loss) > 0:
+            # avg_loss = sum(total_loss) / len(total_loss)
             if verbose:
-                print(f"[{episode}] | Reward: {total_reward} | Avg Loss: {avg_loss}")
+                print(f"[{episode}] | Reward: {total_reward}")
+                # Avg Loss: {avg_loss}")
             if (save_every > 0) and (episode + 1) % save_every == 0:
                 self.algo.save(f"./models/episodes_{episode}")
             if log_path is not None:

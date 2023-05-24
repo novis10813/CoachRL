@@ -42,7 +42,7 @@ class ReplayBuffer(BaseReplayBuffer):
         obs_shape = list(obs_shape)
         obs_shape.insert(0, buffer_size)
         self.state = np.zeros(obs_shape)
-        self.action = np.zeros([buffer_size, action_shape])
+        self.action = np.zeros([buffer_size, action_shape], dtype=np.int64)
         self.reward = np.zeros((buffer_size))
         self.mask = np.zeros((buffer_size))
         self.next_state = np.zeros(obs_shape)
