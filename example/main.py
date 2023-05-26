@@ -11,11 +11,14 @@ from rllib.agent import DQNAgent
 
 
 # env = gym.make("ALE/Asteroids-v5", render_mode="human", obs_type="ram")
-env = gym.make("CartPole-v1", render_mode="human")
-# print(env.observation_space.sample())
-# print(env.observation_space)
-env.metadata["render_fps"] = 15
-env.reset()
-env.action_space.sample()
-agent = DQNAgent(env=env)
-agent.train()
+env = gym.make("CartPole-v1", render_mode="rgb_array")
+agent = DQNAgent(
+    env=env,
+    lr=0.0001,
+    eps=0.9,
+    batch_size=128,
+    gamma=0.99,
+    buffer_size=10000,
+    device="cuda",
+)
+agent.train(episodes=600)

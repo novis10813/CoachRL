@@ -37,15 +37,13 @@ class ReplayBuffer(BaseReplayBuffer):
             If `done`, the mask will record `0.0`, else `gamma`
     """
 
-    def __init__(self, buffer_size, obs_shape, action_shape, gamma):
+    def __init__(self, buffer_size, obs_size, action_size, gamma):
         super().__init__(buffer_size, gamma)
-        obs_shape = list(obs_shape)
-        obs_shape.insert(0, buffer_size)
-        self.state = np.zeros(obs_shape)
-        self.action = np.zeros([buffer_size, action_shape], dtype=np.int64)
+        self.state = np.zeros([buffer_size, obs_size])
+        self.action = np.zeros([buffer_size, action_size])
         self.reward = np.zeros((buffer_size))
         self.mask = np.zeros((buffer_size))
-        self.next_state = np.zeros(obs_shape)
+        self.next_state = np.zeros([buffer_size, obs_size])
 
     def push(self, state, action, reward, done, next_state):
         # calculate cursor position and length
@@ -75,20 +73,12 @@ class ReplayBuffer(BaseReplayBuffer):
         )
 
 
-class PrioritizedReplayBuffer(BaseReplayBuffer):
+class PrioritizedReplayBuffer(ReplayBuffer):
     def __init__(
-        self, buffer_size, obs_shape, action_shape, gamma, alpha=0.1, beta=0.1, eps=1e-2
+        self, buffer_size, obs_size, action_size, gamma, alpha=0.1, beta=0.1, eps=1e-2
     ):
-        super().__init__(buffer_size, gamma)
-        obs_shape = list(obs_shape)
-        obs_shape.insert(0, buffer_size)
-        self.state = np.zeros(obs_shape)
-        self.action = np.zeros([buffer_size, action_shape])
-        self.reward = np.zeros((buffer_size))
-        self.mask = np.zeros((buffer_size))
-        self.next_state = np.zeros(obs_shape)
+        super().__init__(buffer_size, obs_size, action_size, gamma)
         self.tree = SumTree(buffer_size)
-
         self.alpha = alpha
         self.beta = beta
         self.eps = eps  # prevent zero probability

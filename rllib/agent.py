@@ -1,15 +1,23 @@
 import itertools
 import random
 import torch
+import math
+import matplotlib
+import matplotlib.pyplot as plt
 from abc import ABC, abstractmethod
 
 from gymnasium import Env
 from rllib.model import DQN
 from rllib.network import BasicNetwork
-from tqdm.auto import tqdm
 
 from rllib.buffer import PrioritizedReplayBuffer, ReplayBuffer
-from rllib.utils import CsvWriter
+from rllib.utils import CsvWriter, StateProcessor, Plotter
+
+is_ipython = "inline" in matplotlib.get_backend()
+if is_ipython:
+    from IPython import display
+
+plt.ion()
 
 
 class BaseAgent(ABC):
@@ -28,11 +36,13 @@ class BaseAgent(ABC):
         assert verbose in [True, False, "debug"]
         self.verbose = verbose
         self.env = env
-        obs_shape = env.observation_space.shape
+        action_size = 2
+        obs_size = env.observation_space.shape[0]
         self.lr = lr
+        self.buffer_size = buffer_size
         # if the network is not designated, use BasicNetwork
         if net is None:
-            self.net = BasicNetwork(obs_shape[0], env.action_space.n)
+            self.net = BasicNetwork(obs_size, action_size)
         else:
             self.net = net
         if self.verbose == "debug":
@@ -42,12 +52,10 @@ class BaseAgent(ABC):
         self.batch_size = batch_size
         if prioritized_buffer:
             self.buffer = PrioritizedReplayBuffer(
-                buffer_size, obs_shape, env.action_space.n, gamma
+                buffer_size, obs_size, action_size, gamma
             )
         else:
-            self.buffer = ReplayBuffer(
-                buffer_size, obs_shape, env.action_space.n, gamma
-            )
+            self.buffer = ReplayBuffer(buffer_size, obs_size, 1, gamma)
         if self.verbose == "debug":
             print("Buffer is Initialized")
 
@@ -85,6 +93,7 @@ class DQNAgent(BaseAgent):
         batch_size=512,
         verbose=False,
         eps=0.1,
+        tau=0.005,
         device=None,
     ):
         """
@@ -135,19 +144,28 @@ class DQNAgent(BaseAgent):
             verbose,
         )
         self.eps = eps
-        self.algo = DQN(self.net, lr, device)
+        self.algo = DQN(self.net, lr, tau, device)
+        self.device = device
+        self.steps = 0
+        self.plot = Plotter()
 
     def _chooseAction(self, obs):
         """Return Discrete actions"""
-        if random.random() < self.eps:
-            return self.env.action_space.sample()
-        return self.algo.choose_action(obs)
+        eps_threshold = 0.005 + (self.eps - 0.005) * math.exp(-1.0 * self.steps / 1000)
+        self.steps += 1
+
+        if random.random() <= eps_threshold:
+            act = self.env.action_space.sample()
+            return act
+
+        act = self.algo.choose_action(obs)
+        return act
 
     def _optimize(self):
         if len(self.buffer) < self.batch_size:
-            return
+            return 0
         transitions = self.buffer.sample(self.batch_size)
-        self.algo.optimize(transitions)
+        return self.algo.optimize(transitions)
 
     def load(self, model_path):
         self.algo.load(model_path)
@@ -176,38 +194,49 @@ class DQNAgent(BaseAgent):
         verbose : bool, default=True
             Whether to show loss and reward on terminal
         """
-        if log_path is not None:
-            logger = CsvWriter("DQN", log_path)
+        processor = StateProcessor(self.device)
+        # if log_path is not None:
+        # logger = CsvWriter("DQN", log_path)
         for episode in range(episodes):
-            total_reward = 0
-            total_loss = []
+            # total_reward = 0
+            # total_loss = []
             obs, _ = self.env.reset()
-            obs = torch.tensor(obs, dtype=torch.float32, device="cuda").unsqueeze(0)
+            obs = processor.to_tensor(obs)
             done = False
 
-            for t in tqdm(itertools.count()):
+            for t in itertools.count():
                 self.env.render()
                 act = self._chooseAction(obs)
-                obs_, reward, done, _, _ = self.env.step(act)
-                total_reward += reward
-                self.buffer.push(obs.cpu().numpy(), act, reward, done, obs_)
-                loss = self._optimize()
-                # if loss is not None:
+                obs_, reward, terminated, truncated, _ = self.env.step(act)
+                done = terminated or truncated
+
+                # Store transition
+                self.buffer.push(processor.to_numpy(obs), act, reward, done, obs_)
+
+                # Go to next state
+                obs = processor.to_tensor(obs_)
+
+                # Optimize policy model
+                self._optimize()
+
+                # Operate soft update
+                self.algo.soft_update()
+
+                # record loss and reward
+                # total_reward += reward
                 # total_loss.append(loss)
                 if done:
+                    self.plot.episodes_durations.append(t + 1)
+                    self.plot.plot_durations()
                     break
-                obs = torch.tensor(obs_, dtype=torch.float32, device="cuda").unsqueeze(
-                    0
-                )
-            # update target model for every n episodes
-            if (episode + 1) % self.step == 0:
-                self.algo.update_target()
-            # if len(total_loss) > 0:
+
             # avg_loss = sum(total_loss) / len(total_loss)
-            if verbose:
-                print(f"[{episode}] | Reward: {total_reward}")
-                # Avg Loss: {avg_loss}")
-            if (save_every > 0) and (episode + 1) % save_every == 0:
-                self.algo.save(f"./models/episodes_{episode}")
-            if log_path is not None:
-                logger.log(episode, total_reward, avg_loss)
+            # print(f"[{episode+1}] | Reward: {total_reward} Avg Loss: {avg_loss}")
+            # avg_loss = 0
+            # if (save_every > 0) and (episode + 1) % save_every == 0:
+            # self.algo.save(f"./models/episodes_{episode}")
+            # if log_path is not None:
+            #     logger.log(episode, total_reward, avg_loss)
+        self.plot.plot_durations(show_result=True)
+        plt.ioff()
+        plt.show()

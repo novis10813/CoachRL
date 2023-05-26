@@ -7,7 +7,7 @@ from torch.optim import AdamW
 
 
 class BasicAlgo(ABC):
-    def __init__(self, net: Module, lr: float, device: str):
+    def __init__(self, net: Module, lr: float, tau: float, device: str):
         """
         net: A pytorch neural network object
         optimizer: A pytorch optimizer
@@ -15,6 +15,7 @@ class BasicAlgo(ABC):
         self.optimizer = AdamW(net.parameters(), lr=lr)
         self.criterion = SmoothL1Loss()
         self.net = net
+        self.tau = tau
         if not device:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
@@ -31,7 +32,7 @@ class BasicAlgo(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def update_target(self):
+    def soft_update(self):
         raise NotImplementedError
 
     @abstractmethod
@@ -45,20 +46,27 @@ class DQN(BasicAlgo):
     It is used as a base model for DQN in this project.
     """
 
-    def __init__(self, net: Module, lr: float, device: str):
-        super().__init__(net, lr, device)
+    def __init__(self, net: Module, lr: float, tau: float, device: str):
+        super().__init__(net, lr, tau, device)
         self.init_network()
 
-    def update_target(self):
+    def soft_update(self):
         """update target net parameters"""
+        target_net_state_dict = self.target_net.state_dict()
+        policy_net_state_dict = self.policy_net.state_dict()
+        for key in policy_net_state_dict.keys():
+            target_net_state_dict[key] = policy_net_state_dict[
+                key
+            ] * 0.005 + target_net_state_dict[key] * (1 - 0.005)
+        self.target_net.load_state_dict(target_net_state_dict)
+
+    def hard_update(self):
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
     def init_network(self):
-        self.policy_net = self.net
-        self.target_net = self.net
-        self.policy_net.to(self.device)
-        self.target_net.to(self.device)
-        self.update_target()
+        self.policy_net = self.net.to(self.device)
+        self.target_net = self.net.to(self.device)
+        self.hard_update()
 
     def save(self, model_path="./model"):
         if not os.path.exists(model_path):
@@ -80,23 +88,24 @@ class DQN(BasicAlgo):
 
     def choose_action(self, state):
         with torch.no_grad():
-            return torch.argmax(self.policy_net(state)).cpu().numpy().item()
+            act = self.policy_net(state)
+            return torch.argmax(act).cpu().numpy().item()
 
     def optimize(self, transitions):
         # transfer data to GPU
-        transitions = [
-            torch.tensor(i, dtype=torch.float32, device=self.device)
-            for i in transitions
-        ]
-        states, actions, rewards, masks, states_ = transitions
+        states = torch.tensor(transitions[0], dtype=torch.float32, device=self.device)
+        actions = torch.tensor(transitions[1], dtype=torch.long, device=self.device)
+        rewards = torch.tensor(transitions[2], dtype=torch.float32, device=self.device)
+        masks = torch.tensor(transitions[3], dtype=torch.float32, device=self.device)
+        states_ = torch.tensor(transitions[4], dtype=torch.float32, device=self.device)
         # calculate Q value
-        q = self.policy_net(states).gather(1, actions.type(torch.int64))
+        q = self.policy_net(states).gather(1, actions)
         # calculate expected Q value
         with torch.no_grad():
             v_ = self.target_net(states_).max(1)[0]
         q_ = rewards + masks * v_
         # the buffer already deal with the mask,
-        # so I don't have to filter those next_states which are done
+        # so it don't have to filter those next_states which are done
 
         # compute Huber loss
         loss = self.criterion(q, q_.unsqueeze(1))
