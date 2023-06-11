@@ -1,11 +1,12 @@
-import numpy as np
+import torch
 
 
 class SumTree:
-    def __init__(self, capacity):
-        self.nodes = np.zeros(2 * capacity - 1)
-        self.data = np.empty(capacity, dtype=object)
-        self.capacity = capacity
+    def __init__(self, size):
+        self.nodes = torch.zeros(size * (2 * size - 1))
+        self.data = torch.empty(size, dtype=torch.float32)
+
+        self.size = size
         self.count = 0
         self.real_size = 0
 
@@ -14,9 +15,10 @@ class SumTree:
         return self.nodes[0]
 
     def update(self, data_idx, value):
-        idx = data_idx + self.capacity - 1
-        change = value - self.nodes[data_idx]
+        idx = data_idx + self.size - 1
+        change = value - self.nodes[idx]
         self.nodes[idx] = value
+
         parent = (idx - 1) // 2
         while parent >= 0:
             self.nodes[parent] += change
@@ -25,18 +27,25 @@ class SumTree:
     def add(self, value, data):
         self.data[self.count] = data
         self.update(self.count, value)
-        self.count = (self.count + 1) % self.capacity
-        self.real_size = min(self.capacity, self.real_size + 1)
+
+        self.count = (self.count + 1) % self.size
+        self.real_size = min(self.real_size + 1, self.size)
 
     def get(self, cumsum):
         assert cumsum <= self.total
+
         idx = 0
         while 2 * idx + 1 < len(self.nodes):
             left, right = 2 * idx + 1, 2 * idx + 2
+
             if cumsum <= self.nodes[left]:
                 idx = left
             else:
                 idx = right
-                cumsum -= self.nodes[left]
-        data_idx = idx - self.capacity + 1
+                cumsum = cumsum - self.nodes[left]
+
+        data_idx = idx - self.size + 1
         return data_idx, self.nodes[idx], self.data[data_idx]
+
+    def __repr__(self):
+        return f"SumTree(nodes={self.nodes.__repr__()}, data={self.data.__repr__()})"
