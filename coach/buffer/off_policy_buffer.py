@@ -29,6 +29,12 @@ class BaseReplayBuffer(ABC):
         self.pos = 0
         self.full = False
         self.device = get_device(device)
+        self.observations = torch.empty(
+            self.buffer_size, *self.obs_shape, dtype=torch.float32
+        )
+        self.actions = torch.empty(self.buffer_size, self.action_dim, dtype=torch.long)
+        self.rewards = torch.empty(self.buffer_size, dtype=torch.float32)
+        self.masks = torch.empty(self.buffer_size, dtype=torch.float32)
 
     def __len__(self):
         return self.buffer_size if self.full else self.pos
@@ -52,12 +58,6 @@ class ReplayBuffer(BaseReplayBuffer):
         device: Union[torch.device, str] = "auto",
     ):
         super().__init__(buffer_size, observation_space, action_space, gamma, device)
-        self.observations = torch.empty(
-            self.buffer_size, *self.obs_shape, dtype=torch.float32
-        )
-        self.actions = torch.empty(self.buffer_size, self.action_dim, dtype=torch.long)
-        self.rewards = torch.empty(self.buffer_size, dtype=torch.float32)
-        self.masks = torch.empty(self.buffer_size, dtype=torch.float32)
 
     def add(
         self,
